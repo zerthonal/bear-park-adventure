@@ -4,7 +4,8 @@ import { Sfx } from "./audio";
 import { createNightSky, createRain, Lightning, AdaptiveQuality } from "./atmosphere";
 import { brickTexture, concreteTexture, stripeTexture, signTexture, fogTexture, rustTexture } from "./textures";
 import { GFX, type Graphics, type GfxPreset } from "./settings";
-import { buildBear, buildLocker, buildTable, buildArcade, buildGenerator, buildItem, type Bear, type ItemKind } from "./models";
+import { buildBear, buildGhost, buildLocker, buildTable, buildArcade, buildGenerator, buildItem, type Bear, type ItemKind, type SkinId } from "./models";
+import { L } from "./i18n";
 
 // Legend: # brick wall, M mirror, . floor, D operator door, H locker, T table (hide),
 // A arcade, 1/2/3 generators, f fuse, c cog, P start, X exit gate
@@ -35,8 +36,10 @@ const COLS = 24;
 export type InvId = "fuse" | "cog" | "key" | "tokens" | "mechkey";
 export type TokenColor = "red" | "blue" | "yellow";
 export const TOKEN_HEX: Record<TokenColor, string> = { red: "#e03030", blue: "#3070e0", yellow: "#e0c030" };
-export const TOKEN_RU: Record<TokenColor, string> = { red: "КРАСНЫЙ", blue: "СИНИЙ", yellow: "ЖЁЛТЫЙ" };
-const INV_LABEL: Record<InvId, string> = { fuse: "Предохранитель", cog: "Шестерня", key: "Ключ операторской", tokens: "Жетоны", mechkey: "Механический ключ" };
+const TOKEN_NAMES: Record<TokenColor, [string, string]> = { red: ["КРАСНЫЙ", "RED"], blue: ["СИНИЙ", "BLUE"], yellow: ["ЖЁЛТЫЙ", "YELLOW"] };
+export const TOKEN_RU = new Proxy({} as Record<TokenColor, string>, { get: (_, k: TokenColor) => L(...TOKEN_NAMES[k]) });
+const INV_NAMES: Record<InvId, [string, string]> = { fuse: ["Предохранитель", "Fuse"], cog: ["Шестерня", "Cog"], key: ["Ключ операторской", "Operator room key"], tokens: ["Жетоны", "Tokens"], mechkey: ["Механический ключ", "Wind-up key"] };
+const INV_LABEL = new Proxy({} as Record<InvId, string>, { get: (_, k: InvId) => L(...INV_NAMES[k]) });
 
 export interface Note { title: string; text: string; tape?: boolean }
 export interface Hud {
@@ -183,7 +186,7 @@ export class Game {
     this.sfx.startMusic();
     this.sfx.startRain();
     this.startT = performance.now();
-    this.flashMessage("Почините 3 электрощитка, чтобы открыть ворота. Берегитесь Зазывалы.", 6);
+    this.flashMessage(L("Почините 3 электрощитка, чтобы открыть ворота. Берегитесь Зазывалы. Призрак сторожа рядом — поговорите с ним.", "Repair 3 fuse boxes to open the gate. Beware of the Barker. The watchman's ghost is nearby — talk to him."), 6);
     this.loop();
   }
 
@@ -324,16 +327,16 @@ export class Game {
     this.interactables.push({
       pos: new THREE.Vector3(cx(dc), 1.4, cx(dr)),
       alive: true,
-      label: () => (this.has("key") ? "Открыть операторскую (ключ)" : "Операторская — заперто"),
+      label: () => (this.has("key") ? L("Открыть операторскую (ключ)", "Open operator room (key)") : L("Операторская — заперто", "Operator room — locked")),
       use: () => {
-        if (!this.has("key")) return this.flashMessage("Нужен ключ от операторской.");
+        if (!this.has("key")) return this.flashMessage(L("Нужен ключ от операторской.", "You need the operator room key."));
         this.take("key");
         this.doorOpen = true;
         this.doorMesh.rotation.y = Math.PI / 2;
         this.doorMesh.position.z -= S * 0.45;
         this.sfx.door();
         this.noise(this.doorMesh.position, 12);
-        this.flashMessage("Дверь со скрипом открылась.");
+        this.flashMessage(L("Дверь со скрипом открылась.", "The door creaks open."));
         const it = this.interactables.find((i) => i.pos.equals(new THREE.Vector3(cx(dc), 1.4, cx(dr))));
         if (it) it.alive = false;
       },
@@ -370,7 +373,7 @@ export class Game {
       this.interactables.push({
         pos: new THREE.Vector3(cx(c), 1.0, cx(r)),
         alive: true,
-        label: () => (ch === "H" ? "Спрятаться в шкафчике" : "Спрятаться под столом"),
+        label: () => (ch === "H" ? L("Спрятаться в шкафчике", "Hide in locker") : L("Спрятаться под столом", "Hide under table")),
         use: () => this.hide(at),
       });
     }
@@ -382,10 +385,10 @@ export class Game {
     this.interactables.push({
       pos: this.arcadePos.clone(),
       alive: true,
-      label: () => (this.arcadeSolved ? "Автомат пуст" : "Игровой автомат «Token Trial»"),
+      label: () => (this.arcadeSolved ? L("Автомат пуст", "Machine is empty") : L("Игровой автомат «Token Trial»", "\"Token Trial\" arcade machine")),
       use: () => {
-        if (this.arcadeSolved) return this.flashMessage("Автомат уже выдал всё, что мог.");
-        if (this.tokens.length < 3) return this.flashMessage(`Нужно 3 жетона. У вас: ${this.tokens.length}.`);
+        if (this.arcadeSolved) return this.flashMessage(L("Автомат уже выдал всё, что мог.", "The machine has nothing left to give."));
+        if (this.tokens.length < 3) return this.flashMessage(L(`Нужно 3 жетона. У вас: ${this.tokens.length}.`, `Need 3 tokens. You have: ${this.tokens.length}.`));
         this.arcadeSeq = [];
         this.openModal();
         this.cb.onArcade();
@@ -408,9 +411,9 @@ export class Game {
       const it: Interactable = {
         pos: new THREE.Vector3(cx(gc), 1.2, cx(gr)),
         alive: true,
-        label: () => `Электрощиток №${id} — нужен: ${INV_LABEL[needs[id]].toLowerCase()}`,
+        label: () => L(`Электрощиток №${id} — нужен: ${INV_LABEL[needs[id]].toLowerCase()}`, `Fuse box #${id} — needs: ${INV_LABEL[needs[id]].toLowerCase()}`),
         use: () => {
-          if (!this.has(needs[id])) return this.flashMessage(`Не хватает: ${INV_LABEL[needs[id]].toLowerCase()}.`);
+          if (!this.has(needs[id])) return this.flashMessage(L(`Не хватает: ${INV_LABEL[needs[id]].toLowerCase()}.`, `Missing: ${INV_LABEL[needs[id]].toLowerCase()}.`));
           this.take(needs[id]);
           it.alive = false;
           this.gens++;
@@ -419,7 +422,7 @@ export class Game {
           this.sfx.generator();
           this.noise(it.pos, 30);
           if (this.gens >= 3) this.openGate();
-          else this.flashMessage(`Щиток №${id} запущен. Осталось: ${3 - this.gens}. Гул разнёсся по парку…`);
+          else this.flashMessage(L(`Щиток №${id} запущен. Осталось: ${3 - this.gens}. Гул разнёсся по парку…`, `Fuse box #${id} is running. Left: ${3 - this.gens}. The hum echoes through the park…`));
         },
       };
       this.interactables.push(it);
@@ -621,39 +624,39 @@ export class Game {
     };
     const inv = (id: InvId) => () => {
       if (!this.give(id)) {
-        this.flashMessage("Инвентарь полон (4 слота).");
+        this.flashMessage(L("Инвентарь полон (4 слота).", "Inventory full (4 slots)."));
         return false;
       }
-      this.flashMessage(`Подобрано: ${INV_LABEL[id]}`);
+      this.flashMessage(L(`Подобрано: ${INV_LABEL[id]}`, `Picked up: ${INV_LABEL[id]}`));
       return true;
     };
     const f = MAP.findIndex((row) => row.includes("f"));
-    spawn("fuse", MAP[f].indexOf("f"), f, "Подобрать предохранитель", inv("fuse"));
+    spawn("fuse", MAP[f].indexOf("f"), f, L("Подобрать предохранитель", "Pick up fuse"), inv("fuse"));
     const cRow = MAP.findIndex((row) => row.includes("c"));
-    spawn("cog", MAP[cRow].indexOf("c"), cRow, "Подобрать шестерню", inv("cog"));
+    spawn("cog", MAP[cRow].indexOf("c"), cRow, L("Подобрать шестерню", "Pick up cog"), inv("cog"));
     const k = next();
-    spawn("key", k[0], k[1], "Подобрать ключ от операторской", inv("key"));
+    spawn("key", k[0], k[1], L("Подобрать ключ от операторской", "Pick up operator room key"), inv("key"));
     for (const col of this.tokenOrder) {
       const s = next();
-      spawn("token", s[0], s[1], `Подобрать жетон (${TOKEN_RU[col].toLowerCase()})`, () => {
+      spawn("token", s[0], s[1], L(`Подобрать жетон (${TOKEN_RU[col].toLowerCase()})`, `Pick up token (${TOKEN_RU[col].toLowerCase()})`), () => {
         if (!this.give("tokens")) {
-          this.flashMessage("Инвентарь полон (4 слота).");
+          this.flashMessage(L("Инвентарь полон (4 слота).", "Inventory full (4 slots)."));
           return false;
         }
         this.tokens.push(col);
-        this.flashMessage(`Жетон: ${TOKEN_RU[col].toLowerCase()} (${this.tokens.length}/3)`);
+        this.flashMessage(L(`Жетон: ${TOKEN_RU[col].toLowerCase()} (${this.tokens.length}/3)`, `Token: ${TOKEN_RU[col].toLowerCase()} (${this.tokens.length}/3)`));
         return true;
       }, TOKEN_HEX[col]);
     }
     for (let i = 0; i < 6; i++) {
       const s = next();
-      spawn("battery", s[0], s[1], "Подобрать батарейку", () => {
+      spawn("battery", s[0], s[1], L("Подобрать батарейку", "Pick up battery"), () => {
         if (this.battery > 95) {
-          this.flashMessage("Фонарик заряжен полностью.");
+          this.flashMessage(L("Фонарик заряжен полностью.", "Flashlight is fully charged."));
           return false;
         }
         this.battery = Math.min(100, this.battery + 45);
-        this.flashMessage("Батарейка вставлена (+45%)");
+        this.flashMessage(L("Батарейка вставлена (+45%)", "Battery inserted (+45%)"));
         return true;
       });
     }
@@ -665,7 +668,7 @@ export class Game {
     this.notesTotal = notes.length;
     for (const [kind, note] of notes) {
       const s = next();
-      spawn(kind, s[0], s[1], kind === "tape" ? "Прослушать кассету" : "Прочитать записку", () => {
+      spawn(kind, s[0], s[1], kind === "tape" ? L("Прослушать кассету", "Play tape") : L("Прочитать записку", "Read note"), () => {
         this.notes.push(note);
         if (note.tape) this.sfx.tape();
         this.openModal();
@@ -704,17 +707,17 @@ export class Game {
       this.arcadeSeq = [];
       this.sfx.buzzer();
       this.noise(this.arcadePos, 35);
-      this.flashMessage("СИРЕНА! Автомат выплюнул жетоны обратно. Он услышал…");
+      this.flashMessage(L("СИРЕНА! Автомат выплюнул жетоны обратно. Он услышал…", "SIREN! The machine spat the tokens back out. He heard it…"));
       return "wrong";
     }
     if (this.arcadeSeq.length === 3) {
       this.arcadeSolved = true;
       this.take("tokens", 3);
       this.tokens = [];
-      this.give("mechkey") || this.flashMessage("Инвентарь полон — но ключ остался в лотке.");
+      this.give("mechkey") || this.flashMessage(L("Инвентарь полон — но ключ остался в лотке.", "Inventory full — the key stays in the tray."));
       this.sfx.jingle();
       this.noise(this.arcadePos, 20);
-      this.flashMessage("Дзынь! Автомат выдал механический ключ.");
+      this.flashMessage(L("Дзынь! Автомат выдал механический ключ.", "Ding! The machine dispensed a wind-up key."));
       return "solved";
     }
     return "ok";
@@ -722,7 +725,7 @@ export class Game {
 
   private openGate() {
     this.gateOpen = true;
-    this.flashMessage("Все щитки работают! Главные ворота открываются — бегите к выходу!", 6);
+    this.flashMessage(L("Все щитки работают! Главные ворота открываются — бегите к выходу!", "All fuse boxes running! The main gate is opening — run for the exit!"), 6);
     this.sfx.door();
     this.noise(this.pos, 100);
   }
@@ -772,7 +775,7 @@ export class Game {
     this.pitch = Math.max(-1.3, Math.min(1.3, this.pitch - dy * sens));
   }
   toggleFlash() {
-    if (this.battery <= 0) return this.flashMessage("Батарейка села.");
+    if (this.battery <= 0) return this.flashMessage(L("Батарейка села.", "Battery is dead."));
     this.flashOn = !this.flashOn;
     this.sfx.click();
   }
@@ -795,7 +798,7 @@ export class Game {
     this.m.knowsHide = this.m.mode === "chase" && dist < 9 && this.los(this.m.pos.x, this.m.pos.z, this.pos.x, this.pos.z);
     this.hidden = { prev: this.pos.clone(), at };
     this.sfx.door();
-    this.flashMessage("Вы затаились. Нажмите E, чтобы выйти.", 3);
+    this.flashMessage((this.isTouch ? L("Вы затаились. Нажмите кнопку руки, чтобы выйти.", "You are hiding. Tap the hand to get out.") : L("Вы затаились. Нажмите E, чтобы выйти.", "You are hiding. Press E to get out.")), 3);
   }
   private unhide() {
     if (!this.hidden) return;
@@ -891,7 +894,7 @@ export class Game {
       this.battery = Math.max(0, this.battery - dt * 0.75);
       if (this.battery <= 0) {
         this.flashOn = false;
-        this.flashMessage("Фонарик погас. Ищите батарейки.");
+        this.flashMessage(L("Фонарик погас. Ищите батарейки.", "The flashlight died. Find batteries."));
       }
     }
     const flicker = this.battery < 20 ? (Math.random() < 0.08 ? 0.1 : 1) : Math.random() < 0.004 ? 0.3 : 1;
@@ -917,7 +920,7 @@ export class Game {
         }
       }
       if (this.focus) this.prompt = this.focus.label();
-    } else this.prompt = "Выйти из укрытия";
+    } else this.prompt = L("Выйти из укрытия", "Leave hiding spot");
 
     if (this.messageT > 0) this.messageT -= dt;
     this.updateMonster(dt);
