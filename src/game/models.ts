@@ -16,14 +16,27 @@ export interface Bear {
   eye: THREE.Mesh;
 }
 
-export function buildBear(): Bear {
-  const plush = new THREE.MeshStandardMaterial({ map: plushTexture(), roughness: 1 });
-  const plushLight = new THREE.MeshStandardMaterial({ map: plushTexture(), color: "#c9a77a", roughness: 1 });
-  const metal = new THREE.MeshStandardMaterial({ map: rustTexture(), metalness: 0.8, roughness: 0.55 });
+export type SkinId = "classic" | "golden" | "shadow" | "polar" | "rose" | "toxic";
+export const SKINS: Record<SkinId, { ru: string; en: string; fur: string; belly: string; eye: string; hat: string; metal: number }> = {
+  classic: { ru: "Классика", en: "Classic", fur: "#ffffff", belly: "#c9a77a", eye: "#ffb347", hat: "#8a7444", metal: 0.8 },
+  golden: { ru: "Золотой", en: "Golden", fur: "#ffd36b", belly: "#fff0b8", eye: "#ff3b2a", hat: "#3a2a10", metal: 0.95 },
+  shadow: { ru: "Тень", en: "Shadow", fur: "#55505a", belly: "#2a2830", eye: "#b04bff", hat: "#151218", metal: 0.6 },
+  polar: { ru: "Полярный", en: "Polar", fur: "#f2f4ff", belly: "#ffffff", eye: "#59d8ff", hat: "#9aa6b8", metal: 0.8 },
+  rose: { ru: "Розовый", en: "Pink", fur: "#ff9cc0", belly: "#ffd9e6", eye: "#ff4fa0", hat: "#c86b8e", metal: 0.7 },
+  toxic: { ru: "Токсичный", en: "Toxic", fur: "#9be36b", belly: "#e3ffb0", eye: "#7dff3b", hat: "#3a5a20", metal: 0.85 },
+};
+
+export function buildBear(skin: SkinId = "classic"): Bear {
+  const sk = SKINS[skin] ?? SKINS.classic;
+  // Faint emissive so the dark plush never disappears into the night (it read as invisible before).
+  const plushTex = plushTexture();
+  const plush = new THREE.MeshStandardMaterial({ map: plushTex, color: sk.fur, roughness: 1, emissive: sk.fur, emissiveMap: plushTex, emissiveIntensity: 0.35 });
+  const plushLight = new THREE.MeshStandardMaterial({ map: plushTex, color: sk.belly, roughness: 1, emissive: sk.belly, emissiveMap: plushTex, emissiveIntensity: 0.3 });
+  const metal = new THREE.MeshStandardMaterial({ map: rustTexture(), metalness: sk.metal, roughness: 0.55, emissive: "#2a1a10", emissiveIntensity: 0.4 });
   const dark = new THREE.MeshStandardMaterial({ color: "#0a0705", roughness: 0.6 });
   const teethM = new THREE.MeshStandardMaterial({ color: "#c8b98a", roughness: 0.4 });
   const red = new THREE.MeshStandardMaterial({ color: "#5c0c0c", roughness: 0.8 });
-  const straw = new THREE.MeshStandardMaterial({ color: "#8a7444", roughness: 1 });
+  const straw = new THREE.MeshStandardMaterial({ color: sk.hat, roughness: 1 });
 
   const root = new THREE.Group();
   const add = (parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, p: [number, number, number], s?: [number, number, number], rot?: [number, number, number]) => {
@@ -32,6 +45,7 @@ export function buildBear(): Bear {
     if (s) m.scale.set(...s);
     if (rot) m.rotation.set(...rot);
     m.castShadow = true;
+    m.frustumCulled = false;
     parent.add(m);
     return m;
   };
@@ -60,12 +74,12 @@ export function buildBear(): Bear {
   add(head, new THREE.SphereGeometry(0.17, 12, 10), plush, [-0.4, 0.42, -0.02], [1, 1, 0.5]);
   add(head, new THREE.TorusGeometry(0.13, 0.03, 6, 10), metal, [0.4, 0.42, -0.02]);
   // eyes
-  const eyeMat = new THREE.MeshBasicMaterial({ color: "#ffb347", toneMapped: false });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: sk.eye, toneMapped: false });
   const eye = add(head, new THREE.SphereGeometry(0.075, 12, 10), eyeMat, [-0.2, 0.12, 0.47]);
   add(head, new THREE.TorusGeometry(0.1, 0.02, 6, 12), dark, [-0.2, 0.12, 0.46]);
   add(head, new THREE.SphereGeometry(0.1, 10, 8), dark, [0.2, 0.12, 0.44]);
   add(head, new THREE.SphereGeometry(0.06, 10, 8), metal, [0.2, 0.12, 0.47]);
-  const eyeLight = new THREE.PointLight("#ff8a2a", 6, 9, 1.8);
+  const eyeLight = new THREE.PointLight(sk.eye, 6, 9, 1.8);
   eyeLight.position.set(-0.2, 0.12, 0.7);
   head.add(eyeLight);
   // jaw with teeth
@@ -112,7 +126,32 @@ export function buildBear(): Bear {
   const legL = mkLeg(-1);
   const legR = mkLeg(1);
 
+  // soft fill light so the silhouette is readable even with the flashlight off
+  const fill = new THREE.PointLight(sk.fur === "#ffffff" ? "#ffcf9a" : sk.fur, 1.6, 4, 2);
+  fill.position.set(0, 2.4, 1.4);
+  root.add(fill);
   return { root, head, jaw, armL, armR, legL, legR, eyeLight, eye };
+}
+
+// Translucent ghost of the old night watchman.
+export function buildGhost() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshBasicMaterial({ color: "#9fd8ff", transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending });
+  const body = new THREE.Mesh(new THREE.ConeGeometry(0.45, 1.5, 16, 1, true), mat);
+  body.position.y = 0.95; g.add(body);
+  const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.5, 6, 12), mat);
+  torso.position.y = 1.55; g.add(torso);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 12), mat);
+  head.position.y = 2.05; g.add(head);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.1, 16), mat);
+  cap.position.y = 2.22; g.add(cap);
+  const brim = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.2), mat);
+  brim.position.set(0, 2.18, 0.2); g.add(brim);
+  const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.09, 10, 8), new THREE.MeshBasicMaterial({ color: "#ffd27a", toneMapped: false }));
+  lantern.position.set(0.35, 1.2, 0.15); g.add(lantern);
+  const light = new THREE.PointLight("#8fd0ff", 3, 6, 2);
+  light.position.set(0, 1.8, 0.4); g.add(light);
+  return { root: g, mat };
 }
 
 const rustMat = () => new THREE.MeshStandardMaterial({ map: rustTexture(), metalness: 0.7, roughness: 0.6 });
