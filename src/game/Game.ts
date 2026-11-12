@@ -6,6 +6,8 @@ import { brickTexture, concreteTexture, stripeTexture, signTexture, fogTexture, 
 import { GFX, type Graphics, type GfxPreset } from "./settings";
 import { buildBear, buildGhost, buildLocker, buildTable, buildArcade, buildGenerator, buildItem, type Bear, type ItemKind, type SkinId } from "./models";
 import { L } from "./i18n";
+import { availableStoryChoice, canReleaseBear } from "./story-rules";
+import { CHOICES } from "./story";
 
 // Legend: # brick wall, M mirror, . floor, D operator door, H locker, T table (hide),
 // A arcade, 1/2/3 generators, f fuse, c cog, P start, X exit gate
@@ -56,13 +58,14 @@ export interface Hud {
   paused: boolean;
   notes: Note[];
 }
-export type Ending = "caught" | "dark" | "escape" | "truth";
+export type Ending = "caught" | "dark" | "escape" | "truth" | "release" | "keeper";
 export interface EndStats { time: number; notes: number; notesTotal: number; gens: number }
 export interface GameCallbacks {
   onHud: (h: Hud) => void;
   onNote: (n: Note) => void;
   onArcade: () => void;
   onInventory: () => void;
+  onGhost: () => void;
   onEnd: (result: Ending, stats: EndStats) => void;
 }
 
@@ -162,11 +165,12 @@ export class Game {
   private decoys: THREE.Group[] = [];
 
   private P: GfxPreset;
-  constructor(container: HTMLElement, cb: GameCallbacks, gfx: Graphics = "medium") {
+  private releaseArmed = false;
+  constructor(container: HTMLElement, cb: GameCallbacks, gfx: Graphics = "medium", private skin: SkinId = "classic") {
     this.P = GFX[gfx];
     this.container = container;
     this.cb = cb;
-    this.isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+    this.isTouch = window.matchMedia("(pointer: coarse)").matches;
     this.renderer = new THREE.WebGLRenderer({ antialias: this.P.aa, powerPreference: "high-performance", stencil: false });
     this.quality = new AdaptiveQuality(this.renderer, Math.min(window.devicePixelRatio, this.P.dpr), Math.min(window.devicePixelRatio, this.P.minDpr));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
@@ -550,15 +554,24 @@ export class Game {
     this.camera.add(this.flash.target);
 
     // monster
-    this.bear = buildBear();
+    this.bear = buildBear(this.skin);
     sc.add(this.bear.root);
     this.m.pos.set(cx(20), 0, cx(2));
+    this.bear.root.position.copy(this.m.pos);
+    const ghost = buildGhost();
+    ghost.root.position.set(cx(10), 0, cx(15));
+    sc.add(ghost.root);
+    this.interactables.push({
+      pos: new THREE.Vector3(cx(10), 1.6, cx(15)), alive: true,
+      label: () => L("Поговорить со сторожем Митчем", "Talk to Mitch, the watchman"),
+      use: () => { this.openModal(); this.cb.onGhost(); },
+    });
     this.waypoints = ([[3, 2], [3, 5], [12, 5], [22, 5], [22, 9], [19, 10], [21, 12], [18, 15], [12, 15], [2, 15], [1, 9], [1, 5], [12, 10], [15, 2], [20, 2], [10, 12]] as [number, number][]).filter(([c, r]) => !this.solid(c, r, true));
     this.m.target.copy(this.cellCenter(...this.waypoints[3]));
 
     // mirror maze decoy reflections
     for (const [c, r] of [[3, 9], [7, 7], [3, 12]]) {
-      const d = buildBear();
+      const d = buildBear(this.skin);
       d.eyeLight.removeFromParent(); // unused lights still cost every pixel shader
       d.root.traverse((o) => { o.castShadow = false; });
       d.root.scale.setScalar(0.95);
@@ -661,9 +674,9 @@ export class Game {
       });
     }
     const notes: [ItemKind, Note][] = [
-      ["note", { title: "Записка техника", text: `Этот чёртов «Token Trial» опять глючит. Жетоны принимает только строго по порядку:\n\n${this.tokenOrder.map((c) => TOKEN_RU[c]).join(" → ")}\n\nЕсли перепутать — орёт сиреной на весь парк. В лотке выдачи лежит механический ключ от щитка №3.` }],
-      ["note", { title: "Приказ о закрытии, 1987", text: "Парк «Весёлые Горки» закрывается немедленно после инцидента с ростовым аниматроником «Зазывала Барни». Демонтаж робота отложен: при отключении питания он продолжает двигаться. Всем сотрудникам — не входить на территорию после заката." }],
-      ["tape", { title: "Кассета: «Смена 14»", tape: true, text: "…*шипение*… Он реагирует на свет. Если светишь прямо в глаз — идёт к тебе. И на шум тоже: когда запускаешь щиток, он слышит гул через весь парк. …Прячься в шкафчиках или под столом в операторской, пока не пройдёт мимо. Только не дай ему увидеть, куда ты залез… *щелчок*" }],
+      ["note", { title: L("Записка техника", "Technician's note"), text: L(`Этот чёртов «Token Trial» опять глючит. Жетоны принимает только строго по порядку:\n\n${this.tokenOrder.map((c) => TOKEN_RU[c]).join(" → ")}\n\nЕсли перепутать — орёт сиреной на весь парк. В лотке выдачи лежит механический ключ от щитка №3.`, `That damn Token Trial is acting up again. Insert tokens in this exact order:\n\n${this.tokenOrder.map((c) => TOKEN_RU[c]).join(" → ")}\n\nGet it wrong and the siren wakes the whole park. The prize tray holds the wind-up key for fuse box #3.`) }],
+      ["note", { title: L("Приказ о закрытии, 1987", "Closure order, 1987"), text: L("Парк «Весёлые Горки» закрывается немедленно после инцидента с ростовым аниматроником «Зазывала Барни». Демонтаж робота отложен: при отключении питания он продолжает двигаться. Всем сотрудникам — не входить на территорию после заката.", "Happy Hills is closed immediately following the incident involving Barney the Barker. Dismantling is postponed: the robot continues moving without power. All employees: do not enter after sunset.") }],
+      ["tape", { title: L("Кассета: «Смена 14»", "Tape: Shift 14"), tape: true, text: L("…*шипение*… Он реагирует на свет. Если светишь прямо в глаз — идёт к тебе. И на шум тоже: когда запускаешь щиток, он слышит гул через весь парк. …Прячься в шкафчиках или под столом в операторской, пока не пройдёт мимо. Только не дай ему увидеть, куда ты залез… *щелчок*", "…*static*… He follows light. Shine in his eye and he comes for you. Noise too: a running fuse box can be heard across the park. Hide in lockers or under the operator room table until he passes. Don't let him see you hide… *click*") }],
     ];
     this.notesTotal = notes.length;
     for (const [kind, note] of notes) {
@@ -781,17 +794,30 @@ export class Game {
   }
   interact() {
     if (this.state !== "playing" || this.modal) return;
+    const dist = this.m.pos.distanceTo(new THREE.Vector3(this.pos.x, 0, this.pos.z));
+    if (canReleaseBear(this.releaseArmed, this.flashOn, dist, this.los(this.pos.x, this.pos.z, this.m.pos.x, this.m.pos.z))) return this.end("release");
     if (this.hidden) return this.unhide();
     this.focus?.use();
   }
-  private openModal() {
+  openModal() {
     this.modal = true;
     this.keys.clear();
+    this.touch.mx = this.touch.my = this.touch.lookX = this.touch.lookY = 0;
+    this.touch.sprint = false;
     if (document.pointerLockElement) document.exitPointerLock();
   }
   closeModal() {
     this.modal = false;
     this.lock();
+  }
+  completeStoryChoice(id: string) {
+    const choice = CHOICES.find((c) => c.id === id);
+    if (!choice || !availableStoryChoice(choice.when, this.notes.length, this.gens)) return;
+    if (choice.action === "keeper") this.end("keeper");
+    if (choice.action === "release") {
+      this.releaseArmed = true;
+      this.flashMessage(L("Не свети. Подойди к Барни и назови его имя: Томми.", "Turn off your light. Approach Barney and say his name: Tommy."), 8);
+    }
   }
   private hide(at: THREE.Vector3) {
     const dist = this.m.pos.distanceTo(new THREE.Vector3(this.pos.x, 0, this.pos.z));
@@ -920,6 +946,7 @@ export class Game {
         }
       }
       if (this.focus) this.prompt = this.focus.label();
+      if (canReleaseBear(this.releaseArmed, this.flashOn, this.m.pos.distanceTo(new THREE.Vector3(this.pos.x, 0, this.pos.z)), this.los(this.pos.x, this.pos.z, this.m.pos.x, this.m.pos.z))) this.prompt = L("Томми… ты свободен", "Tommy… you are free");
     } else this.prompt = L("Выйти из укрытия", "Leave hiding spot");
 
     if (this.messageT > 0) this.messageT -= dt;
@@ -1043,7 +1070,7 @@ export class Game {
     this.sfx.setHeart(m.mode === "chase" ? 0.8 : dist < 12 ? 0.35 : 0);
 
     // catch
-    if (dist < 1.35 && (!this.hidden || m.knowsHide)) {
+    if (dist < 1.35 && (!this.hidden || m.knowsHide) && !canReleaseBear(this.releaseArmed, this.flashOn, dist, losOk)) {
       this.state = "caught";
       this.caughtT = 0;
       this.hidden = null;

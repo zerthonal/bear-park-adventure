@@ -1,11 +1,14 @@
 import { useRef, useState } from "react";
 import type { Game } from "@/game/Game";
+import { Button } from "@/components/ui/button";
+import { CONTROL_IMAGES } from "./media";
+import { L } from "@/game/i18n";
 
-type Props = { game: React.MutableRefObject<Game | null>; prompt: string; flashlight: boolean };
+type Props = { game: React.MutableRefObject<Game | null>; prompt: string; flashlight: boolean; onInventory: () => void };
 
 const R = 56; // joystick radius in px
 
-export function TouchControls({ game, prompt, flashlight }: Props) {
+export function TouchControls({ game, prompt, flashlight, onInventory }: Props) {
   const stickId = useRef<number | null>(null);
   const lookId = useRef<number | null>(null);
   const origin = useRef({ x: 0, y: 0 });
@@ -71,11 +74,14 @@ export function TouchControls({ game, prompt, flashlight }: Props) {
           <div className="touch-knob" />
         </div>
       )}
-      <div className="absolute bottom-8 right-6 flex flex-col items-end gap-3">
-        <button className={`touch-btn ${flashlight ? "touch-btn-on" : ""}`} aria-label="Фонарик" onTouchStart={tap(() => game.current?.toggleFlash())}>🔦</button>
+      <div className="absolute bottom-5 right-5 flex flex-col items-end gap-3">
+        <div className="flex gap-3">
+        <Button variant="ghost" className="touch-btn" aria-label={L("Инвентарь", "Inventory")} onTouchStart={tap(onInventory)} onClick={onInventory}><img src={CONTROL_IMAGES.bag} alt="" /></Button>
+        <Button variant="ghost" className={`touch-btn ${flashlight ? "touch-btn-on" : ""}`} aria-label={L("Фонарик", "Flashlight")} onTouchStart={tap(() => game.current?.toggleFlash())}><img src={CONTROL_IMAGES.flashlight} alt="" /></Button>
+        </div>
         <div className="flex items-end gap-3">
-          <button className={`touch-btn ${sprint ? "touch-btn-on" : ""}`} aria-label="Бег" onTouchStart={tap(toggleSprint)}>🏃</button>
-          <button className={`touch-btn touch-btn-lg ${prompt ? "touch-btn-on" : ""}`} aria-label="Действие" onTouchStart={tap(() => game.current?.interact())}>✋</button>
+          <Button variant="ghost" className={`touch-btn ${sprint ? "touch-btn-on" : ""}`} aria-label={L("Бег", "Sprint")} onTouchStart={tap(toggleSprint)}><img src={CONTROL_IMAGES.run} alt="" /></Button>
+          <Button variant="ghost" className={`touch-btn touch-btn-lg ${prompt ? "touch-btn-on" : ""}`} aria-label={L("Действие", "Interact")} onTouchStart={tap(() => game.current?.interact())}><img src={CONTROL_IMAGES.hand} alt="" /></Button>
         </div>
       </div>
     </div>

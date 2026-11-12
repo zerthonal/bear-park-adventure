@@ -1,6 +1,6 @@
 // @ts-nocheck -- typed arrays/dataset indexing checked at runtime
 import * as THREE from "three";
-import { buildBear } from "./models";
+import { buildBear, type SkinId } from "./models";
 import { concreteTexture } from "./textures";
 import { createNightSky, createRain, Lightning, AdaptiveQuality } from "./atmosphere";
 
@@ -105,6 +105,16 @@ export class MenuScene {
   }
 
   setFocus(v: number) { this.focus = v; }
+  setSkin(skin: SkinId) {
+    const old = this.bear;
+    this.bear = buildBear(skin);
+    this.bear.root.position.copy(old.root.position);
+    this.bear.root.rotation.copy(old.root.rotation);
+    this.scene.remove(old.root);
+    this.scene.add(this.bear.root);
+    old.root.traverse((o) => { (o as THREE.Mesh).geometry?.dispose(); });
+    this.rim.target = this.bear.root;
+  }
 
   private onMove = (e: PointerEvent) => {
     this.mouse.set((e.clientX / window.innerWidth) * 2 - 1, (e.clientY / window.innerHeight) * 2 - 1);
