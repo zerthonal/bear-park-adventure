@@ -170,7 +170,7 @@ export class Game {
     this.P = GFX[gfx];
     this.container = container;
     this.cb = cb;
-    this.isTouch = window.matchMedia("(pointer: coarse)").matches || "ontouchstart" in window;
+    this.isTouch = window.matchMedia("(pointer: coarse)").matches;
     this.renderer = new THREE.WebGLRenderer({ antialias: this.P.aa, powerPreference: "high-performance", stencil: false });
     this.quality = new AdaptiveQuality(this.renderer, Math.min(window.devicePixelRatio, this.P.dpr), Math.min(window.devicePixelRatio, this.P.minDpr));
     this.renderer.setSize(container.clientWidth, container.clientHeight);
